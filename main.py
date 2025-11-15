@@ -1,13 +1,21 @@
 import os
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from datetime import datetime, timedelta
 from typing import List, Optional
 
-from database import create_document, get_documents, db
-from schemas import Inquiry
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-app = FastAPI(title="Taekwondo Club API")
+from database import create_document, get_documents, db
+from schemas import (
+    MenuItem,
+    CanteenMenuDay,
+    TimetableEntry,
+    AbsenceRecord,
+    PronoteCredentials,
+)
+
+app = FastAPI(title="Lycée Charles de Gaulle API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,15 +27,15 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "Taekwondo Club Backend Running"}
+    return {"message": "Backend Lycée Charles de Gaulle opérationnel"}
 
 @app.get("/api/hello")
 def hello():
-    return {"message": "Welcome to the Taekwondo Club API"}
+    return {"message": "Bienvenue sur l'API du Lycée Charles de Gaulle"}
 
 @app.get("/test")
 def test_database():
-    """Test endpoint to check if database is available and accessible"""
+    """Test pour vérifier la connexion base de données"""
     response = {
         "backend": "✅ Running",
         "database": "❌ Not Available",
@@ -57,48 +65,123 @@ def test_database():
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     return response
 
-# Contact/Inquiries Endpoints
+# ---------------- CANTINE (MENU) ----------------
 
-class InquiryCreate(Inquiry):
+class MenuCreate(CanteenMenuDay):
     pass
 
-class InquiryOut(BaseModel):
+class MenuOut(BaseModel):
     id: str
-    name: str
-    email: str
-    phone: Optional[str] = None
-    subject: Optional[str] = None
-    message: str
-    how_heard: Optional[str] = None
+    date: str
+    items: List[MenuItem]
 
 from bson import ObjectId
 
-def _serialize_inquiry(doc) -> InquiryOut:
-    return InquiryOut(
+def _serialize_menu(doc) -> MenuOut:
+    return MenuOut(
         id=str(doc.get("_id")),
-        name=doc.get("name"),
-        email=doc.get("email"),
-        phone=doc.get("phone"),
-        subject=doc.get("subject"),
-        message=doc.get("message"),
-        how_heard=doc.get("how_heard"),
+        date=doc.get("date"),
+        items=[MenuItem(**item) for item in doc.get("items", [])],
     )
 
-@app.post("/api/inquiries", response_model=dict)
-def create_inquiry(payload: InquiryCreate):
-    """Create a new inquiry from the website contact form"""
+@app.post("/api/menu", response_model=dict)
+def create_menu_day(payload: MenuCreate):
+    """Créer/enregistrer le menu d'un jour (réservé administration)"""
     try:
-        inserted_id = create_document("inquiry", payload)
+        inserted_id = create_document("canteenmenuday", payload)
         return {"success": True, "id": inserted_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/inquiries", response_model=List[InquiryOut])
-def list_inquiries(limit: int = 25):
-    """List recent inquiries (for admin/testing)"""
+@app.get("/api/menu/today", response_model=Optional[MenuOut])
+def get_today_menu():
+    """Obtenir le menu d'aujourd'hui"""
     try:
-        docs = get_documents("inquiry", {}, limit)
-        return [_serialize_inquiry(d) for d in docs]
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        docs = get_documents("canteenmenuday", {"date": today}, limit=1)
+        if not docs:
+            return None
+        return _serialize_menu(docs[0])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/menu", response_model=List[MenuOut])
+def get_menu_range(start: str = Query(..., description="YYYY-MM-DD"), end: str = Query(..., description="YYYY-MM-DD")):
+    """Obtenir les menus entre deux dates incluses"""
+    try:
+        docs = get_documents("canteenmenuday", {"date": {"$gte": start, "$lte": end}}, limit=100)
+        return [_serialize_menu(d) for d in docs]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------- PRONOTE (EMPLOI DU TEMPS & ABSENCES) ----------------
+# Remarque: Pour une intégration réelle, utiliser la librairie pronotepy côté serveur.
+# Ici, on renvoie des données simulées pour valider le flux bout-en-bout.
+
+class TimetableRequest(PronoteCredentials):
+    start: Optional[str] = None  # YYYY-MM-DD
+    end: Optional[str] = None
+
+@app.post("/api/pronote/timetable", response_model=List[TimetableEntry])
+def get_pronote_timetable(req: TimetableRequest):
+    """Récupère l'emploi du temps via Pronote (simulation)"""
+    try:
+        # Simulation: on génère 5 cours entre les dates demandées
+        start_date = datetime.utcnow().date()
+        end_date = start_date
+        if req.start:
+            start_date = datetime.strptime(req.start, "%Y-%m-%d").date()
+        if req.end:
+            end_date = datetime.strptime(req.end, "%Y-%m-%d").date()
+        if end_date < start_date:
+            end_date = start_date
+        results: List[TimetableEntry] = []
+        cur = start_date
+        subjects = ["Maths", "Français", "Physique", "Histoire", "Anglais"]
+        rooms = ["B201", "A105", "Lab1", "C303", "L001"]
+        i = 0
+        while cur <= end_date and i < 10:
+            start_t = datetime.combine(cur, datetime.strptime("08:00", "%H:%M").time())
+            end_t = start_t + timedelta(hours=1, minutes=30)
+            results.append(
+                TimetableEntry(
+                    date=cur.strftime("%Y-%m-%d"),
+                    start=start_t.strftime("%H:%M"),
+                    end=end_t.strftime("%H:%M"),
+                    subject=subjects[i % len(subjects)],
+                    room=rooms[i % len(rooms)],
+                    teacher="M./Mme X",
+                    group="2nde A",
+                )
+            )
+            cur += timedelta(days=1)
+            i += 1
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AbsencesRequest(PronoteCredentials):
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+@app.post("/api/pronote/absences", response_model=List[AbsenceRecord])
+def get_pronote_absences(req: AbsencesRequest):
+    """Récupère les absences via Pronote (simulation)"""
+    try:
+        # Simulation: 0 ou 1 absence aléatoire sur la période
+        start_date = datetime.utcnow().date()
+        if req.start:
+            start_date = datetime.strptime(req.start, "%Y-%m-%d").date()
+        absence_day = start_date.strftime("%Y-%m-%d")
+        return [
+            AbsenceRecord(
+                date=absence_day,
+                start="10:00",
+                end="12:00",
+                justified=False,
+                reason=None,
+            )
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

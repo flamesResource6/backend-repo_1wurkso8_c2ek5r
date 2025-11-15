@@ -1,52 +1,54 @@
 """
 Database Schemas
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+Pydantic models defining collections used by the application.
+Each model name corresponds to a MongoDB collection (lowercased).
 """
 
 from pydantic import BaseModel, Field, EmailStr
-from typing import Optional
+from typing import Optional, List
 
-# Example schemas (replace with your own):
-
+# Core user/admin examples (kept for reference)
 class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: EmailStr = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+    name: str = Field(..., description="Nom complet")
+    email: EmailStr = Field(..., description="Adresse email")
+    address: str = Field(..., description="Adresse")
+    age: Optional[int] = Field(None, ge=0, le=120, description="Âge")
+    is_active: bool = Field(True, description="Actif")
 
 class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
+    title: str = Field(..., description="Titre")
+    description: Optional[str] = Field(None, description="Description")
+    price: float = Field(..., ge=0, description="Prix")
+    category: str = Field(..., description="Catégorie")
+    in_stock: bool = Field(True, description="En stock")
 
-# Taekwondo club specific schema
-class Inquiry(BaseModel):
-    """
-    Leads/inquiries from the contact form
-    Collection name: "inquiry"
-    """
-    name: str = Field(..., min_length=2, description="Full name of sender")
-    email: EmailStr = Field(..., description="Contact email")
-    phone: Optional[str] = Field(None, description="Phone number")
-    subject: Optional[str] = Field(None, description="Subject or topic")
-    message: str = Field(..., min_length=5, max_length=2000, description="Message body")
-    how_heard: Optional[str] = Field(None, description="How they heard about the club")
+# Lycée app specific schemas
+class MenuItem(BaseModel):
+    dish: str = Field(..., description="Nom du plat")
+    type: str = Field(..., description="Type (entrée, plat, dessert, végétarien, etc.)")
+
+class CanteenMenuDay(BaseModel):
+    date: str = Field(..., description="Date au format YYYY-MM-DD")
+    items: List[MenuItem] = Field(default_factory=list, description="Liste des plats du jour")
+
+class TimetableEntry(BaseModel):
+    date: str = Field(..., description="Date YYYY-MM-DD")
+    start: str = Field(..., description="Heure de début HH:MM")
+    end: str = Field(..., description="Heure de fin HH:MM")
+    subject: str = Field(..., description="Matière")
+    room: Optional[str] = Field(None, description="Salle")
+    teacher: Optional[str] = Field(None, description="Professeur")
+    group: Optional[str] = Field(None, description="Groupe/Classe")
+
+class AbsenceRecord(BaseModel):
+    date: str = Field(..., description="Date YYYY-MM-DD")
+    start: str = Field(..., description="Heure de début HH:MM")
+    end: str = Field(..., description="Heure de fin HH:MM")
+    justified: bool = Field(False, description="Justifiée")
+    reason: Optional[str] = Field(None, description="Motif")
+
+class PronoteCredentials(BaseModel):
+    url: str = Field(..., description="URL Pronote de l'établissement")
+    username: str = Field(..., description="Identifiant")
+    password: str = Field(..., description="Mot de passe")
